@@ -96,6 +96,19 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private var lastMove: Long = 0
     private var savedRate: Float = 1f
 
+    // Swipe speed rewind loop
+    private var currentRewindSpeed: Float = 0f
+    private val rewindRunnable = object : Runnable {
+        override fun run() {
+            if (touchAction == TOUCH_SWIPE_SPEED && currentRewindSpeed > 0f && player.service?.isSeekable == true) {
+                val seekAmount = (currentRewindSpeed * 100).toLong() // ms per tick at 30ms interval
+                val newPos = (player.time - seekAmount).coerceAtLeast(0)
+                player.seek(newPos, fast = true)
+                handler.postDelayed(this, 30) // ~33fps seek rate
+            }
+        }
+    }
+
     //Seek
     private var nbTimesTaped = 0
     private var lastSeekWasForward = true
@@ -237,17 +250,20 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                                 player.service?.setRate(speed, false)
                                 showSwipeSpeed(speed, false)
                             } else {
-                                // Reverse: seek backwards proportionally
+                                // Reverse: seek backwards proportionally via repeating runnable
                                 val maxRewind = org.videolan.tools.Settings.swipeSpeedMaxRewind
                                 // Quick transition: use square curve so it ramps up fast
                                 val factor = normalizedDelta.coerceIn(-1f, 0f)
                                 val rewindSpeed = factor * factor * maxRewind // 0 to maxRewind
-                                // Pause playback and seek backwards
-                                player.service?.setRate(0.01f, false) // near-zero rate to prevent forward progress
-                                val seekAmount = (rewindSpeed * 200).toLong() // ms to seek back per frame (~60fps -> ~200ms effective)
-                                if (seekAmount > 0 && player.service?.isSeekable == true) {
-                                    val newPos = (player.time - seekAmount).coerceAtLeast(0)
-                                    player.seek(newPos, fast = true)
+                                // Set near-zero rate to prevent forward progress
+                                player.service?.setRate(0.01f, false)
+                                // Update rewind speed and start loop if needed
+                                currentRewindSpeed = rewindSpeed
+                                if (rewindSpeed > 0f) {
+                                    handler.removeCallbacks(rewindRunnable)
+                                    handler.post(rewindRunnable)
+                                } else {
+                                    handler.removeCallbacks(rewindRunnable)
                                 }
                                 showSwipeSpeed(-rewindSpeed, true)
                             }
@@ -698,6 +714,8 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private fun hideSwipeSpeed() {
         swipeSpeedAnimRunning = false
         swipeSpeedIsReverse = false
+        currentRewindSpeed = 0f
+        handler.removeCallbacks(rewindRunnable)
         val container: LinearLayout = player.findViewById(R.id.fastPlayContainer)
         container.animate().alpha(0F).withEndAction {
             container.setGone()
