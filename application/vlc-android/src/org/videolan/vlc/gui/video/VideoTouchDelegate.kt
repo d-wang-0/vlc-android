@@ -275,12 +275,12 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                                 if (player.service?.rate != 1f) {
                                     player.service?.setRate(1f, false)
                                 }
-                                // Update rewind speed and start loop if needed
+                                // Update rewind speed; only start loop if not already running
+                                val wasRewinding = currentRewindSpeed > 0f
                                 currentRewindSpeed = rewindSpeed
-                                if (rewindSpeed > 0f) {
-                                    handler.removeCallbacks(rewindRunnable)
+                                if (rewindSpeed > 0f && !wasRewinding) {
                                     handler.post(rewindRunnable)
-                                } else {
+                                } else if (rewindSpeed == 0f) {
                                     handler.removeCallbacks(rewindRunnable)
                                 }
                                 showSwipeSpeed(-rewindSpeed, true)
