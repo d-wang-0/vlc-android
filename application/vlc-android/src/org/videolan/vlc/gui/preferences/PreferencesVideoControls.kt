@@ -37,6 +37,7 @@ import org.videolan.tools.ENABLE_DOUBLE_TAP_SEEK
 import org.videolan.tools.ENABLE_FASTPLAY
 import org.videolan.tools.ENABLE_SCALE_GESTURE
 import org.videolan.tools.ENABLE_SWIPE_SEEK
+import org.videolan.tools.ENABLE_SWIPE_SPEED
 import org.videolan.tools.ENABLE_VOLUME_GESTURE
 import org.videolan.tools.FASTPLAY_SPEED
 import org.videolan.tools.KEY_AUDIO_BOOST
@@ -47,6 +48,10 @@ import org.videolan.tools.LOCK_USE_SENSOR
 import org.videolan.tools.POPUP_KEEPSCREEN
 import org.videolan.tools.SCREENSHOT_MODE
 import org.videolan.tools.Settings
+import org.videolan.tools.SWIPE_SPEED_MAX_FORWARD
+import org.videolan.tools.SWIPE_SPEED_MAX_REWIND
+import org.videolan.tools.SWIPE_SPEED_RAMP
+import org.videolan.tools.SWIPE_SPEED_REWIND_JUMP
 import org.videolan.tools.VIDEO_HUD_TIMEOUT
 import org.videolan.tools.coerceInOrDefault
 import org.videolan.tools.readableString
@@ -71,6 +76,11 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
         findPreference<Preference>(ENABLE_SWIPE_SEEK)?.isVisible = !AndroidDevices.isAndroidTv
         findPreference<Preference>(ENABLE_FASTPLAY)?.isVisible = !AndroidDevices.isAndroidTv
         findPreference<Preference>(FASTPLAY_SPEED)?.isVisible = !AndroidDevices.isAndroidTv
+        findPreference<Preference>(ENABLE_SWIPE_SPEED)?.isVisible = !AndroidDevices.isAndroidTv
+        findPreference<Preference>(SWIPE_SPEED_MAX_FORWARD)?.isVisible = !AndroidDevices.isAndroidTv
+        findPreference<Preference>(SWIPE_SPEED_MAX_REWIND)?.isVisible = !AndroidDevices.isAndroidTv
+        findPreference<Preference>(SWIPE_SPEED_RAMP)?.isVisible = !AndroidDevices.isAndroidTv
+        findPreference<Preference>(SWIPE_SPEED_REWIND_JUMP)?.isVisible = !AndroidDevices.isAndroidTv
         findPreference<Preference>(SCREENSHOT_MODE)?.isVisible = !AndroidDevices.isAndroidTv
         volumeGesturePref?.isVisible = AndroidDevices.hasTsp
         findPreference<Preference>(ENABLE_BRIGHTNESS_GESTURE)?.isVisible = AndroidDevices.hasTsp
@@ -80,6 +90,7 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
 
         updateHudTimeoutSummary()
         updateFastplaySpeedSummary()
+        updateSwipeSpeedSummaries()
         val audiomanager = requireActivity().getSystemService<AudioManager>()!!
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || audiomanager.isVolumeFixed) {
             audioBoostPref?.isChecked = false
@@ -101,6 +112,13 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
 
     private fun updateFastplaySpeedSummary() {
         findPreference<Preference>(FASTPLAY_SPEED)?.summary = String.format("%sx", Settings.fastplaySpeed.readableString())
+    }
+
+    private fun updateSwipeSpeedSummaries() {
+        findPreference<Preference>(SWIPE_SPEED_MAX_FORWARD)?.summary = String.format("%sx", Settings.swipeSpeedMaxForward.readableString())
+        findPreference<Preference>(SWIPE_SPEED_MAX_REWIND)?.summary = String.format("%sx", Settings.swipeSpeedMaxRewind.readableString())
+        findPreference<Preference>(SWIPE_SPEED_RAMP)?.summary = String.format("%d dp", Settings.swipeSpeedRamp)
+        findPreference<Preference>(SWIPE_SPEED_REWIND_JUMP)?.summary = String.format("%ds", Settings.swipeSpeedRewindJump / 1000)
     }
 
     override fun onStart() {
@@ -134,6 +152,22 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
             FASTPLAY_SPEED -> {
                 Settings.fastplaySpeed = sharedPreferences.getInt(FASTPLAY_SPEED, 20) / 10f
                 updateFastplaySpeedSummary()
+            }
+            SWIPE_SPEED_MAX_FORWARD -> {
+                Settings.swipeSpeedMaxForward = sharedPreferences.getInt(SWIPE_SPEED_MAX_FORWARD, 40) / 10f
+                updateSwipeSpeedSummaries()
+            }
+            SWIPE_SPEED_MAX_REWIND -> {
+                Settings.swipeSpeedMaxRewind = sharedPreferences.getInt(SWIPE_SPEED_MAX_REWIND, 40) / 10f
+                updateSwipeSpeedSummaries()
+            }
+            SWIPE_SPEED_RAMP -> {
+                Settings.swipeSpeedRamp = sharedPreferences.getInt(SWIPE_SPEED_RAMP, 50)
+                updateSwipeSpeedSummaries()
+            }
+            SWIPE_SPEED_REWIND_JUMP -> {
+                Settings.swipeSpeedRewindJump = sharedPreferences.getInt(SWIPE_SPEED_REWIND_JUMP, 5000)
+                updateSwipeSpeedSummaries()
             }
         }
     }
