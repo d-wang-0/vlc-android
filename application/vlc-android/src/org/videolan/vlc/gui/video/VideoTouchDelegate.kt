@@ -665,7 +665,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
         }
         title.text = speedStr
         container.setVisible()
-        if (container.alpha < 1f) container.animate().alpha(1F)
+        container.alpha = 1F
         // Only restart animation if direction changed or not yet running
         if (!swipeSpeedAnimRunning || swipeSpeedIsReverse != isReverse) {
             swipeSpeedIsReverse = isReverse
