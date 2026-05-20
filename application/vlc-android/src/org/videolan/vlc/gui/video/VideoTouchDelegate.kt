@@ -311,8 +311,11 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         }
                         // SwipeSpeed
                         if (touchAction == TOUCH_SWIPE_SPEED) {
+                            currentRewindSpeed = 0f
+                            handler.removeCallbacks(rewindRunnable)
                             player.overlayDelegate.hideOverlay(false)
                             player.service?.setRate(savedRate, false)
+                            player.service?.play()
                             hideSwipeSpeed()
                             touchAction = TOUCH_NONE
                             return true
