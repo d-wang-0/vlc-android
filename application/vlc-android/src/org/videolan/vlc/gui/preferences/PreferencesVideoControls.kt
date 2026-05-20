@@ -51,6 +51,7 @@ import org.videolan.tools.Settings
 import org.videolan.tools.SWIPE_SPEED_MAX_FORWARD
 import org.videolan.tools.SWIPE_SPEED_MAX_REWIND
 import org.videolan.tools.SWIPE_SPEED_RAMP
+import org.videolan.tools.SWIPE_SPEED_REWIND_JUMP
 import org.videolan.tools.VIDEO_HUD_TIMEOUT
 import org.videolan.tools.coerceInOrDefault
 import org.videolan.tools.readableString
@@ -79,6 +80,7 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
         findPreference<Preference>(SWIPE_SPEED_MAX_FORWARD)?.isVisible = !AndroidDevices.isAndroidTv
         findPreference<Preference>(SWIPE_SPEED_MAX_REWIND)?.isVisible = !AndroidDevices.isAndroidTv
         findPreference<Preference>(SWIPE_SPEED_RAMP)?.isVisible = !AndroidDevices.isAndroidTv
+        findPreference<Preference>(SWIPE_SPEED_REWIND_JUMP)?.isVisible = !AndroidDevices.isAndroidTv
         findPreference<Preference>(SCREENSHOT_MODE)?.isVisible = !AndroidDevices.isAndroidTv
         volumeGesturePref?.isVisible = AndroidDevices.hasTsp
         findPreference<Preference>(ENABLE_BRIGHTNESS_GESTURE)?.isVisible = AndroidDevices.hasTsp
@@ -116,6 +118,7 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
         findPreference<Preference>(SWIPE_SPEED_MAX_FORWARD)?.summary = String.format("%sx", Settings.swipeSpeedMaxForward.readableString())
         findPreference<Preference>(SWIPE_SPEED_MAX_REWIND)?.summary = String.format("%sx", Settings.swipeSpeedMaxRewind.readableString())
         findPreference<Preference>(SWIPE_SPEED_RAMP)?.summary = String.format("%d dp", Settings.swipeSpeedRamp)
+        findPreference<Preference>(SWIPE_SPEED_REWIND_JUMP)?.summary = String.format("%ds", Settings.swipeSpeedRewindJump / 1000)
     }
 
     override fun onStart() {
@@ -160,6 +163,10 @@ class PreferencesVideoControls : BasePreferenceFragment(), SharedPreferences.OnS
             }
             SWIPE_SPEED_RAMP -> {
                 Settings.swipeSpeedRamp = sharedPreferences.getInt(SWIPE_SPEED_RAMP, 50)
+                updateSwipeSpeedSummaries()
+            }
+            SWIPE_SPEED_REWIND_JUMP -> {
+                Settings.swipeSpeedRewindJump = sharedPreferences.getInt(SWIPE_SPEED_REWIND_JUMP, 5000)
                 updateSwipeSpeedSummaries()
             }
         }

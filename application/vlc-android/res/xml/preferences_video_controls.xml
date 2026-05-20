@@ -160,6 +160,18 @@
                 app:seekBarIncrement="5"
                 app:singleLineTitle="false"
                 app:updatesContinuously="true" />
+        <SeekBarPreference
+                android:defaultValue="5000"
+                android:dependency="enable_swipe_speed"
+                android:key="swipe_speed_rewind_jump"
+                android:max="30000"
+                android:summary="%s"
+                android:title="@string/swipe_speed_rewind_jump_title"
+                app:iconSpaceReserved="false"
+                app:min="1000"
+                app:seekBarIncrement="1000"
+                app:singleLineTitle="false"
+                app:updatesContinuously="true" />
 
     </PreferenceCategory>
 

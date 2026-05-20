@@ -39,6 +39,7 @@ object Settings : SingletonHolder<SharedPreferences, Context>({ init(it.applicat
     var swipeSpeedMaxForward = 4f
     var swipeSpeedMaxRewind = 4f
     var swipeSpeedRamp = 50
+    var swipeSpeedRewindJump = 5000 // ms per jump when rewinding
     private var audioControlsChangeListener: (() -> Unit)? = null
     lateinit var device : DeviceInfo
         private set
@@ -82,6 +83,7 @@ object Settings : SingletonHolder<SharedPreferences, Context>({ init(it.applicat
         swipeSpeedMaxForward = prefs.getInt(SWIPE_SPEED_MAX_FORWARD, 40) / 10f
         swipeSpeedMaxRewind = prefs.getInt(SWIPE_SPEED_MAX_REWIND, 40) / 10f
         swipeSpeedRamp = prefs.getInt(SWIPE_SPEED_RAMP, 50)
+        swipeSpeedRewindJump = prefs.getInt(SWIPE_SPEED_REWIND_JUMP, 5000)
     }
 
     fun Context.isPinCodeSet() = getInstance(this).getString(KEY_SAFE_MODE_PIN, "")?.isNotBlank() == true
@@ -243,6 +245,7 @@ const val ENABLE_SWIPE_SPEED = "enable_swipe_speed"
 const val SWIPE_SPEED_MAX_FORWARD = "swipe_speed_max_forward"
 const val SWIPE_SPEED_MAX_REWIND = "swipe_speed_max_rewind"
 const val SWIPE_SPEED_RAMP = "swipe_speed_ramp"
+const val SWIPE_SPEED_REWIND_JUMP = "swipe_speed_rewind_jump"
 const val SAVE_BRIGHTNESS = "save_brightness"
 const val BRIGHTNESS_VALUE = "brightness_value"
 const val POPUP_KEEPSCREEN = "popup_keepscreen"

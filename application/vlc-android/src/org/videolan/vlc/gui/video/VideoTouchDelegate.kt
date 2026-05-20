@@ -102,11 +102,14 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private val rewindRunnable = object : Runnable {
         override fun run() {
             if (touchAction == TOUCH_SWIPE_SPEED && currentRewindSpeed > 0f && player.service?.isSeekable == true) {
-                // seekAmount in ms: at maxRewind (4x), seek back ~67ms per 16ms tick = ~4x real-time
-                val seekAmount = (currentRewindSpeed * 67).toLong()
-                val newPos = (player.time - seekAmount).coerceAtLeast(0)
-                player.seek(newPos, fromUser = false, fast = true)
-                handler.postDelayed(this, 16) // ~60fps seek rate for smooth rewind
+                // Jump back by configurable amount
+                val jumpMs = org.videolan.tools.Settings.swipeSpeedRewindJump.toLong()
+                val newPos = (player.time - jumpMs).coerceAtLeast(0)
+                player.seek(newPos, fromUser = false, fast = false)
+                // Interval between jumps: inversely proportional to rewind speed
+                // At 1x rewind: jump every 5s (matching real-time), at 4x: jump every 1.25s
+                val interval = (jumpMs / currentRewindSpeed).toLong().coerceIn(200, 5000)
+                handler.postDelayed(this, interval)
             }
         }
     }
@@ -210,7 +213,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             currentRewindSpeed = 0f
                             handler.removeCallbacks(rewindRunnable)
                             player.service?.setRate(savedRate, false)
-                            if (wasPlayingBeforeSwipe) {
+                            if (wasPlayingBeforeSwipe && player.service?.isPlaying == false) {
                                 player.service?.play()
                             }
                             player.overlayDelegate.hideOverlay(false)
@@ -258,23 +261,19 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                                     currentRewindSpeed = 0f
                                     handler.removeCallbacks(rewindRunnable)
                                 }
-                                // Resume playback if paused from rewind
-                                if (player.service?.isPlaying == false) {
-                                    player.service?.play()
-                                }
                                 val maxForward = org.videolan.tools.Settings.swipeSpeedMaxForward
                                 val speed = 1f + normalizedDelta.coerceIn(0f, 1f) * (maxForward - 1f)
                                 player.service?.setRate(speed, false)
                                 showSwipeSpeed(speed, false)
                             } else {
-                                // Reverse: pause playback and seek backwards via repeating runnable
+                                // Reverse: keep playing at normal speed, jump back periodically
                                 val maxRewind = org.videolan.tools.Settings.swipeSpeedMaxRewind
                                 // Quick transition: use square curve so it ramps up fast
                                 val factor = normalizedDelta.coerceIn(-1f, 0f)
                                 val rewindSpeed = factor * factor * maxRewind // 0 to maxRewind
-                                // Pause to prevent any forward progress
-                                if (player.service?.isPlaying == true) {
-                                    player.service?.pause()
+                                // Keep playing at normal rate (video continues forward between jumps)
+                                if (player.service?.rate != 1f) {
+                                    player.service?.setRate(1f, false)
                                 }
                                 // Update rewind speed and start loop if needed
                                 currentRewindSpeed = rewindSpeed
@@ -332,9 +331,9 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         if (touchAction == TOUCH_SWIPE_SPEED) {
                             currentRewindSpeed = 0f
                             handler.removeCallbacks(rewindRunnable)
-                            // Restore rate first, then resume playback
+                            // Restore rate and resume if needed
                             player.service?.setRate(savedRate, false)
-                            if (wasPlayingBeforeSwipe) {
+                            if (wasPlayingBeforeSwipe && player.service?.isPlaying == false) {
                                 player.service?.play()
                             }
                             player.overlayDelegate.hideOverlay(false)
