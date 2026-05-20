@@ -239,36 +239,60 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                         if (touchAction == TOUCH_SWIPE_SPEED) {
                             val deltaX = event.x - initTouchX
                             val ramp = org.videolan.tools.Settings.swipeSpeedRamp.coerceAtLeast(1)
-                            val normalizedDelta = deltaX / (ramp * screenConfig.metrics.density)
-                            if (normalizedDelta >= 0) {
-                                // Forward: linear ramp from 1x to maxForward
-                                // Stop any active rewind first
-                                if (currentRewindSpeed > 0f) {
-                                    currentRewindSpeed = 0f
+                            val rawNormalized = deltaX / (ramp * screenConfig.metrics.density)
+                            // Deadzone: ignore small movements near center
+                            val deadzone = 0.05f
+                            val normalizedDelta = when {
+                                rawNormalized > deadzone -> (rawNormalized - deadzone) / (1f - deadzone)
+                                rawNormalized < -deadzone -> (rawNormalized + deadzone) / (1f - deadzone)
+                                else -> 0f
+                            }
+                            if (normalizedDelta >= 0f) {
+                                if (normalizedDelta == 0f) {
+                                    // In deadzone: reset to neutral
+                                    if (currentRewindSpeed > 0f) {
+                                        currentRewindSpeed = 0f
+                                        lastRewindJumpTime = 0L
+                                    }
+                                    player.service?.setRate(1f, false)
+                                    showSwipeSpeed(0f, false)
+                                } else {
+                                    // Forward: exponential ramp from 1x to maxForward
+                                    // Stop any active rewind first
+                                    if (currentRewindSpeed > 0f) {
+                                        currentRewindSpeed = 0f
+                                        lastRewindJumpTime = 0L
+                                    }
+                                    val maxForward = org.videolan.tools.Settings.swipeSpeedMaxForward
+                                    // Exponential curve: small movements give fine control
+                                    val t = normalizedDelta.coerceIn(0f, 1f)
+                                    val speed = 1f + t.pow(1.5f) * (maxForward - 1f)
+                                    player.service?.setRate(speed, false)
+                                    showSwipeSpeed(speed, false)
                                 }
-                                val maxForward = org.videolan.tools.Settings.swipeSpeedMaxForward
-                                val speed = 1f + normalizedDelta.coerceIn(0f, 1f) * (maxForward - 1f)
-                                player.service?.setRate(speed, false)
-                                showSwipeSpeed(speed, false)
                             } else {
-                                // Reverse: jump back on each move, throttled
+                                // Reverse: jump back on each move event, throttled
                                 val maxRewind = org.videolan.tools.Settings.swipeSpeedMaxRewind
-                                val factor = normalizedDelta.coerceIn(-1f, 0f)
-                                val rewindSpeed = factor * factor * maxRewind // 0 to maxRewind
+                                // Exponential curve: small movements give fine control, further = faster ramp
+                                val absFactor = (-normalizedDelta).coerceIn(0f, 1f)
+                                val rewindSpeed = (absFactor.pow(1.5f)) * maxRewind // exponential ramp
                                 currentRewindSpeed = rewindSpeed
-                                // For sub-1x rewind, slow down playback so jumps outpace forward progress
-                                val targetRate = if (rewindSpeed < 1f) (1f - rewindSpeed).coerceIn(0.25f, 1f) else 1f
-                                if (player.service?.rate != targetRate) {
-                                    player.service?.setRate(targetRate, false)
+                                // Keep playback at 1x (no slow motion)
+                                if (player.service?.rate != 1f) {
+                                    player.service?.setRate(1f, false)
                                 }
-                                // Perform jump-back directly (like double-tap seek), throttled to min 300ms apart
+                                // Perform jump-back directly (like double-tap seek), throttled to 300ms
+                                // Jump size = rewindSpeed * 1s (so 2x rewind = 2s jump every 1s = net 1s/s backward)
+                                // With 300ms interval: jumpMs = rewindSpeed * 300ms worth
                                 if (rewindSpeed > 0f && player.service?.isSeekable == true) {
                                     val nowMs = System.currentTimeMillis()
                                     val minInterval = 300L
                                     if (nowMs - lastRewindJumpTime >= minInterval) {
+                                        val elapsed = if (lastRewindJumpTime > 0L) (nowMs - lastRewindJumpTime) else minInterval
                                         lastRewindJumpTime = nowMs
-                                        val baseJumpMs = org.videolan.tools.Settings.swipeSpeedRewindJump
-                                        val jumpMs = (baseJumpMs * rewindSpeed).toInt().coerceAtLeast(500)
+                                        // Net backward = rewindSpeed seconds per real second
+                                        // Plus 1x forward playback, so total jump needed = (rewindSpeed + 1) * elapsed
+                                        val jumpMs = ((rewindSpeed + 1f) * elapsed).toInt().coerceAtLeast(300)
                                         seekDelta(-jumpMs)
                                     }
                                 }
