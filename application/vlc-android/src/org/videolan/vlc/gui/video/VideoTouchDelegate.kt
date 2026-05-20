@@ -217,7 +217,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                                 savedRate = player.service!!.rate
                                 player.overlayDelegate.hideOverlay(fromUser = true)
                                 touchAction = TOUCH_SWIPE_SPEED
-                                showSwipeSpeed(0f)
+                                showSwipeSpeed(0f, false)
                             }
                         }
                         if (touchControls and TOUCH_FLAG_SWIPE_SPEED != 0 && isInAllowedBounds(touchX, touchY))
@@ -230,16 +230,27 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             val deltaX = event.x - initTouchX
                             val ramp = org.videolan.tools.Settings.swipeSpeedRamp.coerceAtLeast(1)
                             val normalizedDelta = deltaX / (ramp * screenConfig.metrics.density)
-                            val speed = if (normalizedDelta >= 0) {
+                            if (normalizedDelta >= 0) {
+                                // Forward: linear ramp from 1x to maxForward
                                 val maxForward = org.videolan.tools.Settings.swipeSpeedMaxForward
-                                1f + normalizedDelta.coerceIn(0f, 1f) * (maxForward - 1f)
+                                val speed = 1f + normalizedDelta.coerceIn(0f, 1f) * (maxForward - 1f)
+                                player.service?.setRate(speed, false)
+                                showSwipeSpeed(speed, false)
                             } else {
+                                // Reverse: seek backwards proportionally
                                 val maxRewind = org.videolan.tools.Settings.swipeSpeedMaxRewind
-                                val rewindFactor = normalizedDelta.coerceIn(-1f, 0f)
-                                (1f + rewindFactor * (maxRewind + 1f)).coerceAtLeast(-maxRewind)
+                                // Quick transition: use square curve so it ramps up fast
+                                val factor = normalizedDelta.coerceIn(-1f, 0f)
+                                val rewindSpeed = factor * factor * maxRewind // 0 to maxRewind
+                                // Pause playback and seek backwards
+                                player.service?.setRate(0.01f, false) // near-zero rate to prevent forward progress
+                                val seekAmount = (rewindSpeed * 200).toLong() // ms to seek back per frame (~60fps -> ~200ms effective)
+                                if (seekAmount > 0 && player.service?.isSeekable == true) {
+                                    val newPos = (player.time - seekAmount).coerceAtLeast(0)
+                                    player.seek(newPos, fast = true)
+                                }
+                                showSwipeSpeed(-rewindSpeed, true)
                             }
-                            player.service?.setRate(speed, false)
-                            showSwipeSpeed(speed)
                             return true
                         }
                         // Mouse events for the core
@@ -638,47 +649,55 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     /**
      * Show the swipe speed overlay with the current speed
      */
-    private fun showSwipeSpeed(speed: Float) {
+    private var swipeSpeedIsReverse = false
+    private var swipeSpeedAnimRunning = false
+
+    private fun showSwipeSpeed(speed: Float, isReverse: Boolean) {
         initSeekOverlay()
         val container: LinearLayout = player.findViewById(R.id.fastPlayContainer)
         val title: TextView = player.findViewById(R.id.fastPlayTitle)
-        val speedStr = if (speed < 0) {
-            String.format("Rewinding at %.1fx", -speed)
+        val speedStr = if (isReverse) {
+            String.format("\u25C0 Rewinding %.1fx", speed.absoluteValue)
         } else if (speed == 0f) {
             player.getString(R.string.swipe_speed_subtitle)
         } else {
-            String.format("Playing at %.1fx", speed)
+            String.format("\u25B6 %.1fx", speed)
         }
         title.text = speedStr
         container.setVisible()
-        container.animate().alpha(1F)
-        // Cancel any ongoing fastplay animation
-        fastPlayAnimatorSet.cancel()
-        // Use simple pulsing arrows based on direction
-        val firstImage: ImageView = player.findViewById(R.id.fastPlayForwardFirst)
-        val secondImage: ImageView = player.findViewById(R.id.fastPlayForwardSecond)
-        if (speed >= 0) {
-            firstImage.rotation = 0f
-            secondImage.rotation = 0f
-        } else {
-            firstImage.rotation = 180f
-            secondImage.rotation = 180f
+        if (container.alpha < 1f) container.animate().alpha(1F)
+        // Only restart animation if direction changed or not yet running
+        if (!swipeSpeedAnimRunning || swipeSpeedIsReverse != isReverse) {
+            swipeSpeedIsReverse = isReverse
+            swipeSpeedAnimRunning = true
+            fastPlayAnimatorSet.cancel()
+            val firstImage: ImageView = player.findViewById(R.id.fastPlayForwardFirst)
+            val secondImage: ImageView = player.findViewById(R.id.fastPlayForwardSecond)
+            if (!isReverse) {
+                firstImage.rotation = 0f
+                secondImage.rotation = 0f
+            } else {
+                firstImage.rotation = 180f
+                secondImage.rotation = 180f
+            }
+            val firstImageAnim = ObjectAnimator.ofFloat(firstImage, "alpha", 1f, 0f, 0f)
+            firstImageAnim.duration = 750
+            firstImageAnim.repeatCount = ValueAnimator.INFINITE
+            val secondImageAnim = ObjectAnimator.ofFloat(secondImage, "alpha", 0F, 1f, 0f)
+            secondImageAnim.duration = 750
+            secondImageAnim.repeatCount = ValueAnimator.INFINITE
+            fastPlayAnimatorSet = AnimatorSet()
+            fastPlayAnimatorSet.playTogether(firstImageAnim, secondImageAnim)
+            fastPlayAnimatorSet.start()
         }
-        val firstImageAnim = ObjectAnimator.ofFloat(firstImage, "alpha", 1f, 0f, 0f)
-        firstImageAnim.duration = 750
-        firstImageAnim.repeatCount = ValueAnimator.INFINITE
-        val secondImageAnim = ObjectAnimator.ofFloat(secondImage, "alpha", 0F, 1f, 0f)
-        secondImageAnim.duration = 750
-        secondImageAnim.repeatCount = ValueAnimator.INFINITE
-        fastPlayAnimatorSet = AnimatorSet()
-        fastPlayAnimatorSet.playTogether(firstImageAnim, secondImageAnim)
-        fastPlayAnimatorSet.start()
     }
 
     /**
      * Hide the swipe speed overlay
      */
     private fun hideSwipeSpeed() {
+        swipeSpeedAnimRunning = false
+        swipeSpeedIsReverse = false
         val container: LinearLayout = player.findViewById(R.id.fastPlayContainer)
         container.animate().alpha(0F).withEndAction {
             container.setGone()
