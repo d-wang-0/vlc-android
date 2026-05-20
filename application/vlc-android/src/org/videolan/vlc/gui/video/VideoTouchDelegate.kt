@@ -102,14 +102,13 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
     private val rewindRunnable = object : Runnable {
         override fun run() {
             if (touchAction == TOUCH_SWIPE_SPEED && currentRewindSpeed > 0f && player.service?.isSeekable == true) {
-                // Jump back by configurable amount
-                val jumpMs = org.videolan.tools.Settings.swipeSpeedRewindJump.toLong()
+                // Fixed interval between jumps; jump size scales with rewind speed
+                val baseJumpMs = org.videolan.tools.Settings.swipeSpeedRewindJump.toLong()
+                val jumpMs = (baseJumpMs * currentRewindSpeed).toLong().coerceAtLeast(500)
                 val newPos = (player.time - jumpMs).coerceAtLeast(0)
                 player.seek(newPos, fromUser = false, fast = false)
-                // Interval between jumps: inversely proportional to rewind speed
-                // At 1x rewind: jump every 5s (matching real-time), at 4x: jump every 1.25s
-                val interval = (jumpMs / currentRewindSpeed).toLong().coerceIn(200, 5000)
-                handler.postDelayed(this, interval)
+                // Fixed pace: jump every 1s
+                handler.postDelayed(this, 1000)
             }
         }
     }
@@ -266,14 +265,16 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                                 player.service?.setRate(speed, false)
                                 showSwipeSpeed(speed, false)
                             } else {
-                                // Reverse: keep playing at normal speed, jump back periodically
+                                // Reverse: keep playing, jump back periodically
                                 val maxRewind = org.videolan.tools.Settings.swipeSpeedMaxRewind
                                 // Quick transition: use square curve so it ramps up fast
                                 val factor = normalizedDelta.coerceIn(-1f, 0f)
                                 val rewindSpeed = factor * factor * maxRewind // 0 to maxRewind
-                                // Keep playing at normal rate (video continues forward between jumps)
-                                if (player.service?.rate != 1f) {
-                                    player.service?.setRate(1f, false)
+                                // For sub-1x rewind, slow down playback so jumps outpace forward progress
+                                // At 1x+ rewind, keep normal speed (jumps are large enough)
+                                val targetRate = if (rewindSpeed < 1f) (1f - rewindSpeed).coerceIn(0.25f, 1f) else 1f
+                                if (player.service?.rate != targetRate) {
+                                    player.service?.setRate(targetRate, false)
                                 }
                                 // Update rewind speed; only start loop if not already running
                                 val wasRewinding = currentRewindSpeed > 0f
