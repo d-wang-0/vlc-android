@@ -52,6 +52,7 @@ const val TOUCH_FLAG_SWIPE_SEEK = 1 shl 4
 const val TOUCH_FLAG_SCREENSHOT = 1 shl 5
 const val TOUCH_FLAG_SCALE = 1 shl 6
 const val TOUCH_FLAG_FASTPLAY = 1 shl 7
+const val TOUCH_FLAG_SWIPE_SPEED = 1 shl 8
 //Touch Events
 private const val TOUCH_NONE = 0
 private const val TOUCH_VOLUME = 1
@@ -61,6 +62,7 @@ private const val TOUCH_TAP_SEEK = 4
 private const val TOUCH_IGNORE = 5
 private const val TOUCH_SCREENSHOT = 6
 private const val TOUCH_FASTPLAY = 7
+private const val TOUCH_SWIPE_SPEED = 8
 
 private const val MIN_FOV = 20f
 private const val MAX_FOV = 150f
@@ -145,7 +147,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                 return true
             }
             else -> {
-                if (!player.isLocked && touchAction != TOUCH_FASTPLAY) {
+                if (!player.isLocked && touchAction != TOUCH_FASTPLAY && touchAction != TOUCH_SWIPE_SPEED) {
                     scaleGestureDetector.onTouchEvent(event)
                     if (scaleGestureDetector.isInProgress) {
                         touchAction = TOUCH_IGNORE
@@ -189,6 +191,11 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             player.service?.setRate(savedRate, false)
                             player.overlayDelegate.hideInfo()
                         }
+                        if (touchAction == TOUCH_SWIPE_SPEED) {
+                            player.overlayDelegate.hideOverlay(false)
+                            player.service?.setRate(savedRate, false)
+                            hideSwipeSpeed()
+                        }
                         touchAction = TOUCH_NONE
                         // Seek
                         touchX = event.x
@@ -203,12 +210,38 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                                 touchAction = TOUCH_FASTPLAY
                             }
                         }
-                        if (touchControls and TOUCH_FLAG_FASTPLAY != 0 && isInAllowedBounds(touchX, touchY))
+                        if (touchControls and TOUCH_FLAG_FASTPLAY != 0 && touchControls and TOUCH_FLAG_SWIPE_SPEED == 0 && isInAllowedBounds(touchX, touchY))
                             handler.postDelayed(fastPlayRunnable, 250)
+                        val swipeSpeedRunnable = Runnable {
+                            if (touchAction == TOUCH_NONE && player.service != null) {
+                                savedRate = player.service!!.rate
+                                player.overlayDelegate.hideOverlay(fromUser = true)
+                                touchAction = TOUCH_SWIPE_SPEED
+                                showSwipeSpeed(0f)
+                            }
+                        }
+                        if (touchControls and TOUCH_FLAG_SWIPE_SPEED != 0 && isInAllowedBounds(touchX, touchY))
+                            handler.postDelayed(swipeSpeedRunnable, 250)
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        if ((touchControls and TOUCH_FLAG_SCREENSHOT == TOUCH_FLAG_SCREENSHOT) && event.pointerCount == 3 && touchAction != TOUCH_FASTPLAY) touchAction = TOUCH_SCREENSHOT
+                        if ((touchControls and TOUCH_FLAG_SCREENSHOT == TOUCH_FLAG_SCREENSHOT) && event.pointerCount == 3 && touchAction != TOUCH_FASTPLAY && touchAction != TOUCH_SWIPE_SPEED) touchAction = TOUCH_SCREENSHOT
                         if (touchAction == TOUCH_IGNORE || touchAction == TOUCH_FASTPLAY) return false
+                        if (touchAction == TOUCH_SWIPE_SPEED) {
+                            val deltaX = event.x - initTouchX
+                            val ramp = org.videolan.tools.Settings.swipeSpeedRamp.coerceAtLeast(1)
+                            val normalizedDelta = deltaX / (ramp * screenConfig.metrics.density)
+                            val speed = if (normalizedDelta >= 0) {
+                                val maxForward = org.videolan.tools.Settings.swipeSpeedMaxForward
+                                1f + normalizedDelta.coerceIn(0f, 1f) * (maxForward - 1f)
+                            } else {
+                                val maxRewind = org.videolan.tools.Settings.swipeSpeedMaxRewind
+                                val rewindFactor = normalizedDelta.coerceIn(-1f, 0f)
+                                (1f + rewindFactor * (maxRewind + 1f)).coerceAtLeast(-maxRewind)
+                            }
+                            player.service?.setRate(speed, false)
+                            showSwipeSpeed(speed)
+                            return true
+                        }
                         // Mouse events for the core
                         player.sendMouseEvent(MotionEvent.ACTION_MOVE, xTouch, yTouch)
 
@@ -246,6 +279,14 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
                             player.overlayDelegate.hideOverlay(false)
                             player.service?.setRate(savedRate, false)
                             hideFastplay()
+                            touchAction = TOUCH_NONE
+                            return true
+                        }
+                        // SwipeSpeed
+                        if (touchAction == TOUCH_SWIPE_SPEED) {
+                            player.overlayDelegate.hideOverlay(false)
+                            player.service?.setRate(savedRate, false)
+                            hideSwipeSpeed()
                             touchAction = TOUCH_NONE
                             return true
                         }
@@ -506,7 +547,7 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
         }
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
-            if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY) {
+            if (player.fov == 0f && !player.isLocked && (touchControls and TOUCH_FLAG_SCALE == TOUCH_FLAG_SCALE) && touchAction != TOUCH_FASTPLAY && touchAction != TOUCH_SWIPE_SPEED) {
                 val grow = detector.scaleFactor > 1.0f
                 if (grow && player.currentScaleType != MediaPlayer.ScaleType.SURFACE_FIT_SCREEN) {
                     savedScale = player.currentScaleType
@@ -592,6 +633,62 @@ class VideoTouchDelegate(private val player: VideoPlayerActivity,
             container.setGone()
         }
         fastPlayAnimatorSet.cancel()
+    }
+
+    /**
+     * Show the swipe speed overlay with the current speed
+     */
+    private fun showSwipeSpeed(speed: Float) {
+        initSeekOverlay()
+        val container: LinearLayout = player.findViewById(R.id.fastPlayContainer)
+        val title: TextView = player.findViewById(R.id.fastPlayTitle)
+        val speedStr = if (speed < 0) {
+            String.format("Rewinding at %.1fx", -speed)
+        } else if (speed == 0f) {
+            player.getString(R.string.swipe_speed_subtitle)
+        } else {
+            String.format("Playing at %.1fx", speed)
+        }
+        title.text = speedStr
+        container.setVisible()
+        container.animate().alpha(1F)
+        // Cancel any ongoing fastplay animation
+        fastPlayAnimatorSet.cancel()
+        // Use simple pulsing arrows based on direction
+        val firstImage: ImageView = player.findViewById(R.id.fastPlayForwardFirst)
+        val secondImage: ImageView = player.findViewById(R.id.fastPlayForwardSecond)
+        if (speed >= 0) {
+            firstImage.rotation = 0f
+            secondImage.rotation = 0f
+        } else {
+            firstImage.rotation = 180f
+            secondImage.rotation = 180f
+        }
+        val firstImageAnim = ObjectAnimator.ofFloat(firstImage, "alpha", 1f, 0f, 0f)
+        firstImageAnim.duration = 750
+        firstImageAnim.repeatCount = ValueAnimator.INFINITE
+        val secondImageAnim = ObjectAnimator.ofFloat(secondImage, "alpha", 0F, 1f, 0f)
+        secondImageAnim.duration = 750
+        secondImageAnim.repeatCount = ValueAnimator.INFINITE
+        fastPlayAnimatorSet = AnimatorSet()
+        fastPlayAnimatorSet.playTogether(firstImageAnim, secondImageAnim)
+        fastPlayAnimatorSet.start()
+    }
+
+    /**
+     * Hide the swipe speed overlay
+     */
+    private fun hideSwipeSpeed() {
+        val container: LinearLayout = player.findViewById(R.id.fastPlayContainer)
+        container.animate().alpha(0F).withEndAction {
+            container.setGone()
+        }
+        fastPlayAnimatorSet.cancel()
+        // Reset arrow rotations
+        val firstImage: ImageView = player.findViewById(R.id.fastPlayForwardFirst)
+        val secondImage: ImageView = player.findViewById(R.id.fastPlayForwardSecond)
+        firstImage.rotation = 0f
+        secondImage.rotation = 0f
     }
     private fun showSeek(seekForward: Boolean): TextView {
         initSeekOverlay()
